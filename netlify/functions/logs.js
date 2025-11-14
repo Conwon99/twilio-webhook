@@ -137,3 +137,4 @@ exports.handler = async (event, context) => {
 exports.addLog = addLog;
 exports.getLogs = getLogs;
 
+

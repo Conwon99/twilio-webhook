@@ -294,3 +294,4 @@ This is a template project. Feel free to fork and customize for your needs!
 
 **Ready to deploy?** Run `netlify deploy --prod` and you're done! 🚀
 
+

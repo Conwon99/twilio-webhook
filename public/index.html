@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formspree Webhook - Logs Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.95rem;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .endpoint {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            word-break: break-all;
+            border-left: 4px solid #667eea;
+        }
+
+        .logs-container {
+            margin-top: 30px;
+        }
+
+        .logs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .logs-count {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .auto-refresh {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: #667eea;
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+
+        .log-entry {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .log-entry.error {
+            border-left-color: #e74c3c;
+            background: #fee;
+        }
+
+        .log-entry.success {
+            border-left-color: #27ae60;
+            background: #eff;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .log-timestamp {
+            color: #666;
+            font-size: 0.85rem;
+            font-family: 'Courier New', monospace;
+        }
+
+        .log-type {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .log-type.webhook {
+            background: #667eea;
+            color: white;
+        }
+
+        .log-type.test {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .log-data {
+            margin-top: 10px;
+        }
+
+        .log-data pre {
+            background: white;
+            padding: 12px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 0.85rem;
+            border: 1px solid #e0e0e0;
+        }
+
+        .empty-logs {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-logs svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .test-form {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .test-form h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            font-family: inherit;
+        }
+
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>
+            <span>🚀 Formspree Webhook Logs</span>
+            <button class="btn-secondary" onclick="testWebhook()">Test Webhook</button>
+        </h1>
+        <p class="subtitle">Real-time webhook submission logs and testing</p>
+
+        <div id="status" class="status info" style="display: none;"></div>
+
+        <div class="endpoint">
+            <strong>Webhook Endpoint:</strong><br>
+            <span id="webhookUrl">Loading...</span>
+        </div>
+
+        <div class="test-form">
+            <h3>🧪 Test Webhook</h3>
+            <div class="form-group">
+                <label>Name:</label>
+                <input type="text" id="testName" placeholder="John Doe" value="John Doe">
+            </div>
+            <div class="form-group">
+                <label>Email:</label>
+                <input type="email" id="testEmail" placeholder="john@example.com" value="john@example.com">
+            </div>
+            <div class="form-group">
+                <label>Message:</label>
+                <textarea id="testMessage" placeholder="Test message">This is a test submission</textarea>
+            </div>
+            <button class="btn-primary" onclick="sendTestWebhook()">Send Test Submission</button>
+        </div>
+
+        <div class="logs-container">
+            <div class="logs-header">
+                <h2>📋 Logs</h2>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <div class="auto-refresh">
+                        <label class="switch">
+                            <input type="checkbox" id="autoRefresh" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <span style="font-size: 0.9rem;">Auto-refresh</span>
+                    </div>
+                    <button class="btn-secondary" onclick="loadLogs()">🔄 Refresh</button>
+                    <button class="btn-danger" onclick="clearLogs()">🗑️ Clear Logs</button>
+                </div>
+            </div>
+            <div class="logs-count" id="logsCount">Loading logs...</div>
+            <div id="logsList"></div>
+        </div>
+    </div>
+
+    <script>
+        let autoRefreshInterval = null;
+        const hostname = window.location.hostname;
+        const protocol = window.location.protocol;
+        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+        const baseUrl = isLocal 
+            ? `${protocol}//${hostname}:8888`
+            : `${protocol}//${hostname}`;
+        
+        const webhookUrl = `${baseUrl}/.netlify/functions/webhook`;
+        const logsUrl = `${baseUrl}/.netlify/functions/logs`;
+        
+        document.getElementById('webhookUrl').textContent = webhookUrl;
+
+        // Auto-refresh functionality
+        const autoRefreshCheckbox = document.getElementById('autoRefresh');
+        autoRefreshCheckbox.addEventListener('change', function() {
+            if (this.checked) {
+                startAutoRefresh();
+            } else {
+                stopAutoRefresh();
+            }
+        });
+
+        function startAutoRefresh() {
+            if (autoRefreshInterval) return;
+            autoRefreshInterval = setInterval(loadLogs, 3000); // Refresh every 3 seconds
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+        }
+
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        async function loadLogs() {
+            try {
+                const response = await fetch(logsUrl);
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayLogs(data.logs || []);
+                    document.getElementById('logsCount').textContent = 
+                        `${data.count || 0} log${data.count !== 1 ? 's' : ''} found`;
+                } else {
+                    showStatus('Failed to load logs', 'warning');
+                }
+            } catch (error) {
+                console.error('Error loading logs:', error);
+                showStatus('Error loading logs. Make sure Netlify dev server is running.', 'warning');
+                document.getElementById('logsList').innerHTML = 
+                    '<div class="empty-logs"><p>Unable to connect to logs endpoint.</p></div>';
+            }
+        }
+
+        function displayLogs(logs) {
+            const logsList = document.getElementById('logsList');
+            
+            if (logs.length === 0) {
+                logsList.innerHTML = `
+                    <div class="empty-logs">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke-width="2"/>
+                        </svg>
+                        <p>No logs yet. Send a test submission or wait for Formspree webhooks.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            logsList.innerHTML = logs.map(log => {
+                const date = new Date(log.timestamp);
+                const formattedDate = date.toLocaleString();
+                const logType = log.type || 'webhook';
+                
+                let submissionData = '';
+                if (log.submission) {
+                    submissionData = JSON.stringify(log.submission, null, 2);
+                } else if (log.data) {
+                    submissionData = JSON.stringify(log.data, null, 2);
+                }
+
+                return `
+                    <div class="log-entry">
+                        <div class="log-header">
+                            <div>
+                                <span class="log-type ${logType}">${logType}</span>
+                                <span class="log-timestamp" style="margin-left: 10px;">${formattedDate}</span>
+                            </div>
+                        </div>
+                        <div class="log-data">
+                            ${log.headers ? `
+                                <div style="margin-bottom: 10px;">
+                                    <strong>Headers:</strong>
+                                    <pre>${JSON.stringify(log.headers, null, 2)}</pre>
+                                </div>
+                            ` : ''}
+                            ${submissionData ? `
+                                <div>
+                                    <strong>Submission Data:</strong>
+                                    <pre>${submissionData}</pre>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function sendTestWebhook() {
+            const testData = {
+                name: document.getElementById('testName').value,
+                email: document.getElementById('testEmail').value,
+                message: document.getElementById('testMessage').value,
+            };
+
+            try {
+                showStatus('Sending test webhook...', 'info');
+                
+                // First, store as a test log
+                await fetch(logsUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'test',
+                        method: 'POST',
+                        submission: testData,
+                        headers: {
+                            'user-agent': 'Mozilla/5.0 (Test Client)',
+                            'content-type': 'application/json',
+                        },
+                    }),
+                });
+
+                // Then send to webhook
+                const response = await fetch(webhookUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(testData),
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showStatus('✅ Test webhook sent successfully!', 'success');
+                    loadLogs(); // Refresh logs
+                } else {
+                    showStatus(`❌ Webhook error: ${result.error || 'Unknown error'}`, 'warning');
+                }
+            } catch (error) {
+                showStatus(`❌ Error: ${error.message}`, 'warning');
+                console.error('Test webhook error:', error);
+            }
+        }
+
+        async function testWebhook() {
+            try {
+                const response = await fetch(`${webhookUrl}?challenge=test123`);
+                const data = await response.json();
+                showStatus('✅ Webhook endpoint is active!', 'success');
+            } catch (error) {
+                showStatus('❌ Webhook endpoint test failed', 'warning');
+            }
+        }
+
+        async function clearLogs() {
+            if (!confirm('Are you sure you want to clear all logs?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(logsUrl, {
+                    method: 'DELETE',
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus('Logs cleared successfully', 'success');
+                    loadLogs();
+                } else {
+                    showStatus('Failed to clear logs', 'warning');
+                }
+            } catch (error) {
+                showStatus(`Error clearing logs: ${error.message}`, 'warning');
+            }
+        }
+
+        // Initial load
+        loadLogs();
+        
+        // Start auto-refresh if enabled
+        if (autoRefreshCheckbox.checked) {
+            startAutoRefresh();
+        }
+
+        // Test webhook endpoint on load
+        testWebhook();
+    </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "formspree-webhook-netlify",
+  "version": "1.0.0",
+  "description": "Netlify serverless functions for handling Formspree webhooks",
+  "main": "netlify/functions/webhook.js",
+  "scripts": {
+    "dev": "netlify dev",
+    "build": "echo 'No build step required'",
+    "test": "echo 'Run netlify dev to test locally'"
+  },
+  "keywords": [
+    "netlify",
+    "formspree",
+    "webhook",
+    "serverless"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.x"
+  }
+}
+

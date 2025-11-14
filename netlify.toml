@@ -1,0 +1,16 @@
+[build]
+  # No build command needed for this project
+  functions = "netlify/functions"
+  publish = "public"
+
+[[redirects]]
+  # Redirect root to index.html
+  from = "/"
+  to = "/index.html"
+  status = 200
+
+[functions]
+  # Node.js runtime version
+  node_bundler = "esbuild"
+  included_files = ["netlify/functions/**"]
+

@@ -334,15 +334,19 @@
             <h3>🧪 Test Webhook</h3>
             <div class="form-group">
                 <label>Name:</label>
-                <input type="text" id="testName" placeholder="John Doe" value="John Doe">
+                <input type="text" id="testName" placeholder="Connor Dorward" value="Connor Dorward">
             </div>
             <div class="form-group">
-                <label>Email:</label>
-                <input type="email" id="testEmail" placeholder="john@example.com" value="john@example.com">
+                <label>Phone:</label>
+                <input type="tel" id="testPhone" placeholder="07792145328" value="07792145328">
             </div>
             <div class="form-group">
                 <label>Message:</label>
                 <textarea id="testMessage" placeholder="Test message">This is a test submission</textarea>
+            </div>
+            <div class="form-group">
+                <label>Website URL:</label>
+                <input type="url" id="testWebsiteUrl" placeholder="https://scautodetailing.co.uk" value="https://scautodetailing.co.uk">
             </div>
             <button class="btn-primary" onclick="sendTestWebhook()">Send Test Submission</button>
         </div>
@@ -490,12 +494,23 @@
         async function sendTestWebhook() {
             const testData = {
                 name: document.getElementById('testName').value,
-                email: document.getElementById('testEmail').value,
+                phone: document.getElementById('testPhone').value,
                 message: document.getElementById('testMessage').value,
+                websiteUrl: document.getElementById('testWebsiteUrl').value,
             };
 
             try {
                 showStatus('Sending test webhook...', 'info');
+                
+                // Format data to match Formspree's structure
+                const formspreeFormat = {
+                    form: "test-form",
+                    submission: {
+                        _date: new Date().toISOString(),
+                        ...testData
+                    },
+                    keys: Object.keys(testData)
+                };
                 
                 // First, store as a test log
                 await fetch(logsUrl, {
@@ -512,17 +527,17 @@
                     }),
                 });
 
-                // Then send to webhook
+                // Send to webhook in Formspree format
                 const response = await fetch(webhookUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(testData),
+                    body: JSON.stringify(formspreeFormat),
                 });
 
                 const result = await response.json();
                 
                 if (response.ok) {
-                    showStatus('✅ Test webhook sent successfully!', 'success');
+                    showStatus('✅ Test webhook sent successfully! SMS should be sent if phone number is valid.', 'success');
                     loadLogs(); // Refresh logs
                 } else {
                     showStatus(`❌ Webhook error: ${result.error || 'Unknown error'}`, 'warning');

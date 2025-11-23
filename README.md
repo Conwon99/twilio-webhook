@@ -7,6 +7,7 @@ A production-ready Netlify project that handles Formspree webhooks using serverl
 - ✅ **Simple Webhook Support**: Direct POST requests with form data
 - ✅ **REST Hook Support**: Automatic handshake verification (GET challenge/response)
 - ✅ **Slack Integration**: Send form submissions to Slack (optional)
+- ✅ **Twilio SMS Integration**: Send SMS notifications via Twilio (optional)
 - ✅ **Structured Logging**: Console logging with timestamps and metadata
 - ✅ **Error Handling**: Comprehensive error handling and validation
 - ✅ **CORS Support**: Ready for browser-based testing
@@ -54,6 +55,25 @@ A production-ready Netlify project that handles Formspree webhooks using serverl
      ```
      SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
      ```
+
+4. **Configure Twilio SMS (Optional)**
+   
+   To enable SMS notifications via Twilio, set the following environment variables:
+   
+   - Get Twilio credentials from: https://console.twilio.com/
+   - You'll need:
+     - Account SID
+     - Auth Token
+     - Twilio Phone Number (sender number)
+   - Add these to your Netlify environment variables:
+     ```
+     TWILIO_ACCOUNT_SID=your_account_sid
+     TWILIO_AUTH_TOKEN=your_auth_token
+     TWILIO_PHONE_NUMBER=+1234567890 (your Twilio number)
+     TWILIO_TO_PHONE=+1234567890 (recipient number, optional - can use form data)
+     ```
+   - Or set locally in `.env` file
+   - **Note**: If `TWILIO_TO_PHONE` is not set, the function will use the `phone` field from the form submission
 
 ## 🧪 Local Testing
 
@@ -202,6 +222,10 @@ Logs include:
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
 | `SLACK_WEBHOOK_URL` | Slack webhook URL for notifications | No | None (logs only) |
+| `TWILIO_ACCOUNT_SID` | Twilio Account SID | No | None (SMS disabled) |
+| `TWILIO_AUTH_TOKEN` | Twilio Auth Token | No | None (SMS disabled) |
+| `TWILIO_PHONE_NUMBER` | Twilio phone number (sender) | No | None (SMS disabled) |
+| `TWILIO_TO_PHONE` | Recipient phone number (E.164 format) | No | Uses `phone` field from form |
 
 ### Customizing the Handler
 

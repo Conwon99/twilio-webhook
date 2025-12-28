@@ -5,7 +5,7 @@
  */
 
 // In-memory log storage (resets on function restart)
-// In production, use a database like Fauna, MongoDB, or Netlify's built-in storage
+// Note: For true persistence across restarts, consider using Netlify Blobs or a database
 let logStorage = [];
 
 /**
@@ -21,18 +21,20 @@ function addLog(entry) {
   
   logStorage.unshift(logEntry); // Add to beginning
   
-  // Keep only last 100 entries
-  if (logStorage.length > 100) {
-    logStorage = logStorage.slice(0, 100);
-  }
+  // Removed limit - keep all logs in memory
+  // Note: In production with high volume, consider implementing pagination or external storage
   
   return logEntry;
 }
 
 /**
  * Get recent logs
+ * @param {number} limit - Maximum number of logs to return (0 = all logs)
  */
-function getLogs(limit = 50) {
+function getLogs(limit = 0) {
+  if (limit === 0) {
+    return logStorage; // Return all logs
+  }
   return logStorage.slice(0, limit);
 }
 
@@ -67,7 +69,9 @@ exports.handler = async (event, context) => {
   try {
     // GET - Retrieve logs
     if (event.httpMethod === 'GET') {
-      const limit = parseInt(event.queryStringParameters?.limit || '50', 10);
+      // Default to 0 (all logs) unless limit is explicitly specified
+      const limitParam = event.queryStringParameters?.limit;
+      const limit = limitParam ? parseInt(limitParam, 10) : 0;
       const logs = getLogs(limit);
       
       return {

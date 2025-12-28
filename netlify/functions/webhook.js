@@ -12,6 +12,52 @@ const fs = require('fs');
 const path = require('path');
 
 /**
+ * Normalize a website URL for matching (remove trailing slash, lowercase, add https if missing)
+ * @param {string} url - The website URL
+ * @returns {string} Normalized URL
+ */
+function normalizeWebsiteUrl(url) {
+  if (!url) return '';
+  // Remove trailing slash, convert to lowercase, trim
+  let normalized = url.toLowerCase().replace(/\/+$/, '').trim();
+  
+  // If URL doesn't have a protocol, assume https://
+  if (normalized && !normalized.match(/^https?:\/\//)) {
+    normalized = 'https://' + normalized.replace(/^\/\//, '');
+  }
+  
+  return normalized;
+}
+
+/**
+ * Get phone number from form data, checking various field names
+ * @param {Object} formData - The form submission data
+ * @returns {string|null} Phone number or null if not found
+ */
+function getPhoneFromFormData(formData) {
+  if (!formData) return null;
+  
+  // Check various common phone field names (case-insensitive)
+  const phoneFields = ['phone', 'phone-no', 'phoneNo', 'Phone-No', 'Phone', 'PHONE', 'mobile', 'Mobile', 'MOBILE', 'tel', 'Tel', 'TEL', 'telephone', 'Telephone'];
+  
+  for (const field of phoneFields) {
+    // Direct match
+    if (formData[field]) {
+      return formData[field];
+    }
+    
+    // Case-insensitive match
+    const keys = Object.keys(formData);
+    const matchedKey = keys.find(k => k.toLowerCase() === field.toLowerCase());
+    if (matchedKey && formData[matchedKey]) {
+      return formData[matchedKey];
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Load website to phone number mapping
  * @returns {Object} Map of websiteUrl -> phone number
  */
@@ -36,15 +82,21 @@ function loadWebsiteNumberMap() {
         const twilioNumber = parts[2]; // Twilio number (if different from default)
         
         if (websiteUrl && clientNumber) {
-          mapping[websiteUrl] = {
+          // Normalize the URL key for consistent matching
+          const normalizedKey = normalizeWebsiteUrl(websiteUrl);
+          // Clean up twilioNumber - trim whitespace and convert empty strings to null
+          const cleanTwilioNumber = twilioNumber && twilioNumber.trim() ? twilioNumber.trim() : null;
+          mapping[normalizedKey] = {
             clientNumber: clientNumber,
-            twilioNumber: twilioNumber || null
+            twilioNumber: cleanTwilioNumber,
+            originalUrl: websiteUrl // Keep original for reference
           };
         }
       }
     });
     
-    console.log('Loaded website number mapping:', mapping);
+    console.log('Loaded website number mapping:', JSON.stringify(mapping, null, 2));
+    console.log('Mapping keys:', Object.keys(mapping));
     return mapping;
   } catch (error) {
     console.log('Could not load webnumber_map file, using empty mapping:', error.message);
@@ -59,7 +111,22 @@ function loadWebsiteNumberMap() {
  */
 function getPhoneForWebsite(websiteUrl) {
   const mapping = loadWebsiteNumberMap();
-  return mapping[websiteUrl] || null;
+  
+  // Normalize the input URL for matching
+  const normalizedUrl = normalizeWebsiteUrl(websiteUrl);
+  
+  console.log('Looking up website URL:', websiteUrl);
+  console.log('Normalized URL for lookup:', normalizedUrl);
+  console.log('Available mapping keys:', Object.keys(mapping));
+  
+  // Look up using normalized key
+  const result = mapping[normalizedUrl] || null;
+  if (result) {
+    console.log('Found mapping:', JSON.stringify(result, null, 2));
+  } else {
+    console.log('No mapping found for:', normalizedUrl);
+  }
+  return result;
 }
 
 /**
@@ -72,7 +139,18 @@ function getPhoneForWebsite(websiteUrl) {
 async function sendTwilioSMS(message, toPhone, fromPhoneOverride = null) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromPhone = fromPhoneOverride || process.env.TWILIO_PHONE_NUMBER;
+  
+  // Log what we received
+  console.log('sendTwilioSMS called with fromPhoneOverride:', fromPhoneOverride);
+  console.log('Default TWILIO_PHONE_NUMBER from env:', process.env.TWILIO_PHONE_NUMBER);
+  
+  // Use override if it's a valid non-empty string, otherwise use default
+  const fromPhone = (fromPhoneOverride && fromPhoneOverride.trim()) 
+    ? fromPhoneOverride.trim() 
+    : process.env.TWILIO_PHONE_NUMBER;
+  
+  console.log('Final fromPhone being used:', fromPhone);
+  console.log('Was override used?', (fromPhoneOverride && fromPhoneOverride.trim()) ? 'YES' : 'NO');
   
   // Skip if Twilio credentials are not configured
   if (!accountSid || !authToken || !fromPhone) {
@@ -96,12 +174,18 @@ async function sendTwilioSMS(message, toPhone, fromPhoneOverride = null) {
     const client = twilio(accountSid, authToken);
 
     console.log('Sending SMS - From:', fromPhone, 'To:', toPhone);
+    console.log('SMS Body being sent to Twilio (length:', message.length, '):');
+    console.log('---START OF MESSAGE---');
+    console.log(message);
+    console.log('---END OF MESSAGE---');
 
     const result = await client.messages.create({
       body: message,
       from: fromPhone,
       to: toPhone,
     });
+    
+    console.log('Twilio response - SID:', result.sid, 'Status:', result.status, 'Body length:', result.body?.length || 'N/A');
 
     console.log('SMS sent successfully:', result.sid, 'to:', toPhone);
     return {
@@ -169,9 +253,10 @@ function formatFormDataMessage(formData) {
     parts.push(`Email: ${formData.email}`);
   }
   
-  // Handle phone
-  if (formData.phone) {
-    parts.push(`Phone: ${formData.phone}`);
+  // Handle phone (check various field names)
+  const phoneNumber = getPhoneFromFormData(formData);
+  if (phoneNumber) {
+    parts.push(`Phone: ${phoneNumber}`);
   }
   
   // Handle service/type
@@ -184,9 +269,10 @@ function formatFormDataMessage(formData) {
     parts.push(`Message: ${formData.message}`);
   }
   
-  // Handle website URL
-  if (formData.websiteUrl) {
-    parts.push(`Website: ${formData.websiteUrl}`);
+  // Handle website URL (check various field names including _website)
+  const websiteUrl = formData.websiteUrl || formData.website || formData.siteUrl || formData._website;
+  if (websiteUrl) {
+    parts.push(`Website: ${websiteUrl}`);
   }
   
   // Include any other fields (except internal ones starting with _)
@@ -440,6 +526,9 @@ exports.handler = async (event, context) => {
       }
 
       // Log the submission
+      console.log('=== Starting Processing ===');
+      console.log('Form data keys:', Object.keys(formData));
+      console.log('Website URL from form:', formData.websiteUrl || formData.website || formData.siteUrl || formData._website);
       logSubmission(formData, event.headers);
 
       // Store log entry (async, don't block response)
@@ -480,20 +569,26 @@ exports.handler = async (event, context) => {
 
       // Send multiple SMS messages:
       // 1. Form contents to mapped number based on websiteUrl
-      // 2. Form contents to additional number (+447862139959)
+      // 2. Form contents to additional number (+447792145328)
       // 3. Confirmation message to customer's phone
+      // 4. Customer number to client (for easy copying)
       
       let smsResult1 = null; // Form contents to mapped client
       let smsResult1b = null; // Form contents to additional number
       let smsResult2 = null; // Confirmation to customer
+      let smsResult3 = null; // Customer number to client
       
       // Prepare form message once
       const formMessage = formatFormDataMessage(formData);
       
+      // Store client phone number and customer phone for later use
+      let clientPhoneForCustomer = null;
+      let customerPhoneForClient = null;
+      
       try {
         // Message 1a: Send form contents to mapped client number based on websiteUrl
         // Try to find websiteUrl in form data, or use a default mapping
-        const websiteUrl = formData.websiteUrl || formData.website || formData.siteUrl;
+        const websiteUrl = formData.websiteUrl || formData.website || formData.siteUrl || formData._website;
         
         if (websiteUrl) {
           const websiteMapping = getPhoneForWebsite(websiteUrl);
@@ -504,21 +599,84 @@ exports.handler = async (event, context) => {
             if (!clientPhone.startsWith('+')) {
               clientPhone = formatPhoneNumber(clientPhone);
             }
+            // Store for customer confirmation message
+            clientPhoneForCustomer = clientPhone;
+            
+            // Get customer phone number for client
+            const customerPhone = formatPhoneNumber(getPhoneFromFormData(formData));
+            customerPhoneForClient = customerPhone;
+            
+            console.log('=== PHONE NUMBER EXTRACTION ===');
+            console.log('Raw phone from form:', getPhoneFromFormData(formData));
+            console.log('Formatted customer phone:', customerPhone);
+            console.log('customerPhoneForClient set to:', customerPhoneForClient);
+            console.log('================================');
+            
             // Use Twilio number from mapping if provided, otherwise use default
-            const twilioFromNumber = websiteMapping.twilioNumber || null;
             console.log('=== MESSAGE 1a: Form Contents (Mapped Client) ===');
-            console.log('From:', twilioFromNumber || 'default');
+            console.log('Website URL:', websiteUrl);
+            console.log('Normalized URL:', normalizeWebsiteUrl(websiteUrl));
+            console.log('Mapping found:', !!websiteMapping);
+            console.log('Full websiteMapping object:', JSON.stringify(websiteMapping, null, 2));
+            console.log('websiteMapping.twilioNumber (raw):', websiteMapping.twilioNumber);
+            console.log('websiteMapping.twilioNumber type:', typeof websiteMapping.twilioNumber);
+            console.log('websiteMapping.twilioNumber truthy?', !!websiteMapping.twilioNumber);
+            
+            const twilioFromNumber = websiteMapping.twilioNumber && websiteMapping.twilioNumber.trim() 
+              ? websiteMapping.twilioNumber.trim() 
+              : null;
+            
+            console.log('Twilio number after processing:', twilioFromNumber);
+            console.log('Will use override?', twilioFromNumber ? 'YES' : 'NO - will use default');
+            
+            // Append instruction to form message if customer phone is available
+            let messageToClient = formMessage;
+            if (customerPhoneForClient) {
+              messageToClient += "\n\nPlease copy the following number to message or call the person back:";
+              console.log('DEBUG: Appended instruction to message. Customer phone available:', customerPhoneForClient);
+            } else {
+              console.log('DEBUG: No customer phone available, not appending instruction');
+            }
+            
+            console.log('=== DEBUG: Message being sent to client ===');
             console.log('To:', clientPhone);
-            console.log('Message:', formMessage);
+            console.log('Message length:', messageToClient.length);
+            console.log('Message ends with instruction?', messageToClient.includes('Please copy the following number'));
+            console.log('Full message:', messageToClient);
             console.log('==================================');
-            smsResult1 = await sendTwilioSMS(formMessage, clientPhone, twilioFromNumber);
+            smsResult1 = await sendTwilioSMS(messageToClient, clientPhone, twilioFromNumber);
+            
+            // Send customer number to client (for easy copying)
+            console.log('=== MESSAGE 1a-2: Preparing to send customer phone ===');
+            console.log('customerPhoneForClient value:', customerPhoneForClient);
+            console.log('customerPhoneForClient type:', typeof customerPhoneForClient);
+            console.log('customerPhoneForClient truthy?', !!customerPhoneForClient);
+            
+            if (customerPhoneForClient) {
+              // Small delay to ensure messages arrive in order
+              await new Promise(resolve => setTimeout(resolve, 500));
+              
+              console.log('=== MESSAGE 1a-2: Customer Number to Client ===');
+              console.log('To:', clientPhone);
+              console.log('From (Twilio):', twilioFromNumber || 'default');
+              console.log('Message (customer phone):', customerPhoneForClient);
+              console.log('==================================');
+              smsResult3 = await sendTwilioSMS(customerPhoneForClient, clientPhone, twilioFromNumber);
+              console.log('MESSAGE 1a-2 result:', JSON.stringify(smsResult3, null, 2));
+            } else {
+              console.log('ERROR: No customer phone number available to send to client');
+              console.log('customerPhoneForClient was:', customerPhoneForClient);
+              smsResult3 = { skipped: true, reason: 'No customer phone number found' };
+            }
           } else {
             console.log('No client number mapped for website:', websiteUrl);
             smsResult1 = { skipped: true, reason: 'No mapping found for websiteUrl' };
+            smsResult3 = { skipped: true, reason: 'No mapping found for websiteUrl' };
           }
         } else {
           console.log('No websiteUrl in form data, skipping mapped client SMS');
           smsResult1 = { skipped: true, reason: 'No websiteUrl in form data' };
+          smsResult3 = { skipped: true, reason: 'No websiteUrl in form data' };
         }
       } catch (smsError) {
         console.error('Business SMS (mapped client) failed (non-blocking):', smsError);
@@ -527,7 +685,7 @@ exports.handler = async (event, context) => {
       
       try {
         // Message 1b: Send form contents to additional number
-        const additionalNumber = '+447862139959';
+        const additionalNumber = '+447792145328';
         console.log('=== MESSAGE 1b: Form Contents (Additional Number) ===');
         console.log('To:', additionalNumber);
         console.log('Message:', formMessage);
@@ -540,7 +698,7 @@ exports.handler = async (event, context) => {
       
       try {
         // Message 2: Send confirmation to customer
-        const customerPhone = formatPhoneNumber(formData.phone);
+        const customerPhone = formatPhoneNumber(getPhoneFromFormData(formData));
         
         if (customerPhone) {
           const confirmationMessage = "Thanks for your message! We've received your contact form submission and will reply as soon as possible - keep on the lookout for a text message or a call.";
@@ -552,6 +710,7 @@ exports.handler = async (event, context) => {
         } else {
           console.log('No customer phone number in form data, skipping confirmation SMS');
           smsResult2 = { skipped: true, reason: 'No phone number in form data' };
+          smsResult3 = { skipped: true, reason: 'No phone number in form data' };
         }
       } catch (smsError) {
         console.error('Customer confirmation SMS failed (non-blocking):', smsError);
@@ -569,6 +728,7 @@ exports.handler = async (event, context) => {
           businessSmsSent: smsResult1 && !smsResult1.skipped,
           additionalSmsSent: smsResult1b && !smsResult1b.skipped,
           customerSmsSent: smsResult2 && !smsResult2.skipped,
+          customerNumberSent: smsResult3 && !smsResult3.skipped,
         }),
       };
     }

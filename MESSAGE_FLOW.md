@@ -64,7 +64,7 @@
 │ +447418335312         │         │ +447792145329            │
 │                       │         │                          │
 │ From: Twilio Number   │         │ From: Twilio Number      │
-│ +447414130199         │         │ +447414130199            │
+│ +447446992853         │         │ +447446992853            │
 │                       │         │                          │
 │ Content:              │         │ Content:                  │
 │ 📝 New Form           │         │ Thanks for your          │
@@ -141,7 +141,7 @@ formData = {
 websiteUrl: "https://scautodetailing.co.uk"
   ↓
 clientNumber: "+447418335312"
-twilioNumber: "+447414130199"
+twilioNumber: "+447446992853"
 ```
 
 #### 3c. Format Phone Numbers
@@ -155,7 +155,7 @@ twilioNumber: "+447414130199"
 #### Message 1: Form Contents (to Client)
 ```
 To: +447418335312
-From: +447414130199
+From: +447446992853
 Message:
 📝 New Form Submission
 Name: John Doe
@@ -167,7 +167,7 @@ Website: https://scautodetailing.co.uk
 #### Message 2: Confirmation (to Customer)
 ```
 To: +447792145329
-From: +447414130199
+From: +447446992853
 Message:
 Thanks for your message! We've received your contact form submission and will reply as soon as possible - keep on the lookout for a text message or a call.
 ```
@@ -191,12 +191,12 @@ Thanks for your message! We've received your contact form submission and will re
 ### Environment Variables
 - `TWILIO_ACCOUNT_SID` - Twilio account identifier
 - `TWILIO_AUTH_TOKEN` - Twilio authentication token
-- `TWILIO_PHONE_NUMBER` - Default Twilio sender number (`+447414130199`)
+- `TWILIO_PHONE_NUMBER` - Default Twilio sender number (`+447446992853`)
 
 ### Mapping File Format
 ```
 websiteUrl, clientNumber, twilioNumber
-https://scautodetailing.co.uk,+447418335312,+447414130199
+https://scautodetailing.co.uk,+447418335312,+447446992853
 ```
 
 ## Error Handling
@@ -212,6 +212,10 @@ https://scautodetailing.co.uk,+447418335312,+447414130199
 - Messages sent **in parallel** (not sequential)
 - Webhook responds immediately (doesn't wait for SMS delivery)
 - Typical SMS delivery: 1-5 seconds
+
+
+
+
 
 
 

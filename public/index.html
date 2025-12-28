@@ -196,6 +196,31 @@
             margin-bottom: 15px;
             border-radius: 6px;
             font-size: 0.9rem;
+            position: relative;
+        }
+
+        .btn-copy {
+            background: #667eea;
+            color: white;
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .btn-copy:hover {
+            background: #5568d3;
+        }
+
+        .btn-copy:active {
+            background: #4456b8;
+        }
+
+        .btn-copy.copied {
+            background: #27ae60;
         }
 
         .log-entry.error {
@@ -419,6 +444,7 @@
 
         async function loadLogs() {
             try {
+                // Request all logs (no limit)
                 const response = await fetch(logsUrl);
                 const data = await response.json();
                 
@@ -437,6 +463,65 @@
             }
         }
 
+        function copyLogData(logId, button) {
+            try {
+                // Get log data from data attribute
+                const logDataAttr = button.getAttribute('data-log-data');
+                if (!logDataAttr) {
+                    showStatus('No log data found', 'warning');
+                    return;
+                }
+                
+                // Unescape HTML entities
+                const logData = logDataAttr
+                    .replace(/&amp;/g, '&')
+                    .replace(/&quot;/g, '"')
+                    .replace(/&#39;/g, "'")
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>');
+                
+                // Parse and format the JSON for better readability
+                const formattedData = JSON.stringify(JSON.parse(logData), null, 2);
+                
+                // Copy to clipboard
+                navigator.clipboard.writeText(formattedData).then(() => {
+                    const originalText = button.textContent;
+                    button.textContent = '✅ Copied!';
+                    button.classList.add('copied');
+                    
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                        button.classList.remove('copied');
+                    }, 2000);
+                }).catch(err => {
+                    console.error('Failed to copy:', err);
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = formattedData;
+                    textArea.style.position = 'fixed';
+                    textArea.style.opacity = '0';
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    try {
+                        document.execCommand('copy');
+                        const originalText = button.textContent;
+                        button.textContent = '✅ Copied!';
+                        button.classList.add('copied');
+                        setTimeout(() => {
+                            button.textContent = originalText;
+                            button.classList.remove('copied');
+                        }, 2000);
+                    } catch (fallbackErr) {
+                        showStatus('Failed to copy to clipboard', 'warning');
+                    }
+                    document.body.removeChild(textArea);
+                });
+            } catch (error) {
+                console.error('Error copying log data:', error);
+                showStatus('Failed to copy log data', 'warning');
+            }
+        }
+
         function displayLogs(logs) {
             const logsList = document.getElementById('logsList');
             
@@ -452,10 +537,11 @@
                 return;
             }
 
-            logsList.innerHTML = logs.map(log => {
+            logsList.innerHTML = logs.map((log, index) => {
                 const date = new Date(log.timestamp);
                 const formattedDate = date.toLocaleString();
                 const logType = log.type || 'webhook';
+                const logId = log.id || `log-${index}`;
                 
                 let submissionData = '';
                 if (log.submission) {
@@ -464,6 +550,14 @@
                     submissionData = JSON.stringify(log.data, null, 2);
                 }
 
+                // Create full log data for copying - escape for HTML attribute
+                const fullLogData = JSON.stringify(log, null, 2)
+                    .replace(/&/g, '&amp;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+
                 return `
                     <div class="log-entry">
                         <div class="log-header">
@@ -471,6 +565,9 @@
                                 <span class="log-type ${logType}">${logType}</span>
                                 <span class="log-timestamp" style="margin-left: 10px;">${formattedDate}</span>
                             </div>
+                            <button class="btn-copy" onclick="copyLogData('${logId}', this)" data-log-data="${fullLogData}" id="copy-btn-${logId}">
+                                📋 Copy All
+                            </button>
                         </div>
                         <div class="log-data">
                             ${log.headers ? `

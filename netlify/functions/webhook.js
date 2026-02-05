@@ -353,6 +353,169 @@ async function sendToSlack(formData) {
 }
 
 /**
+ * Send data to GoHighLevel via webhook
+ * @param {Object} formData - The form submission data
+ * @param {string} websiteUrl - The website URL to check if it matches glenhausgardenroom.com
+ * @returns {Promise<Object>} Response from GoHighLevel
+ */
+async function sendToGoHighLevel(formData, websiteUrl) {
+  console.log('=== sendToGoHighLevel called ===');
+  console.log('Input websiteUrl:', websiteUrl);
+  console.log('FormData keys:', Object.keys(formData));
+  
+  const GHL_WEBHOOK_URL = process.env.GOHIGHLEVEL_WEBHOOK_URL;
+  console.log('GHL_WEBHOOK_URL exists:', !!GHL_WEBHOOK_URL);
+  
+  // Only send to GoHighLevel if it's from glenhausgardenroom.com/garden-rooms
+  const glenhausUrl = 'https://glenhausgardenroom.com/garden-rooms';
+  const normalizedUrl = websiteUrl ? normalizeWebsiteUrl(websiteUrl) : '';
+  const normalizedGlenhaus = normalizeWebsiteUrl(glenhausUrl);
+  
+  console.log('URL Matching Check:');
+  console.log('  - Input websiteUrl:', websiteUrl);
+  console.log('  - Normalized URL:', normalizedUrl);
+  console.log('  - Normalized Glenhaus URL:', normalizedGlenhaus);
+  console.log('  - URL includes glenhausgardenroom.com?', normalizedUrl.includes('glenhausgardenroom.com'));
+  console.log('  - URLs match exactly?', normalizedUrl === normalizedGlenhaus);
+  
+  // Check if this submission is from the glenhaus garden rooms form
+  if (!normalizedUrl || (!normalizedUrl.includes('glenhausgardenroom.com') && normalizedUrl !== normalizedGlenhaus)) {
+    console.log('❌ Not a glenhausgardenroom.com submission, skipping GoHighLevel');
+    console.log('Normalized URL:', normalizedUrl);
+    console.log('Normalized Glenhaus URL:', normalizedGlenhaus);
+    return { skipped: true, reason: 'Not a glenhausgardenroom.com submission' };
+  }
+  
+  // Skip if no GHL webhook URL is configured
+  if (!GHL_WEBHOOK_URL) {
+    console.log('❌ GoHighLevel webhook URL not configured, skipping GHL notification');
+    console.log('Please set GOHIGHLEVEL_WEBHOOK_URL environment variable in Netlify');
+    return { skipped: true, reason: 'GHL webhook URL not configured' };
+  }
+  
+  console.log('✅ URL matches and GHL webhook URL is configured, proceeding...');
+
+  try {
+    // Format data for GoHighLevel webhook
+    // GoHighLevel requires: email OR phone (at least one must be present)
+    // Field names: camelCase or snake_case, no spaces
+    // Must be valid JSON object at top level
+    const phoneNumber = formatPhoneNumber(getPhoneFromFormData(formData));
+    const emailValue = formData.email || '';
+    
+    // Validate: GHL requires at least email OR phone
+    if (!emailValue && !phoneNumber) {
+      console.error('❌ ERROR: GoHighLevel requires at least email OR phone, but both are missing!');
+      throw new Error('GoHighLevel webhook requires at least email or phone number');
+    }
+    
+    // Combine name into fullName
+    let fullName = '';
+    if (formData.name) {
+      fullName = formData.name;
+    } else if (formData.firstName || formData.lastName) {
+      fullName = [formData.firstName, formData.lastName].filter(Boolean).join(' ');
+    }
+    
+    // Build GoHighLevel payload - use camelCase field names
+    // Ensure all values are strings (GHL doesn't like null/undefined)
+    const ghlPayload = {
+      fullName: fullName || '',
+      email: emailValue,
+      phone: phoneNumber || '',
+      message: formData.message || '',
+      source: 'Glenhaus Garden Rooms Website',
+      websiteUrl: websiteUrl || '',
+      // Include any custom fields (ensuring they're strings)
+      ...(formData.service && { service: String(formData.service) }),
+      ...(formData.field && { field: String(formData.field) }),
+      // Include all other fields (ensuring values are strings and keys are valid)
+      ...Object.keys(formData).reduce((acc, key) => {
+        // Skip internal fields and already-processed fields
+        if (!['name', 'firstName', 'lastName', 'fullName', 'email', 'phone', 'message', 'websiteUrl', 'service', 'field'].includes(key) && !key.startsWith('_')) {
+          // Ensure key is valid (no spaces, camelCase or snake_case)
+          const cleanKey = key.replace(/\s+/g, '').replace(/([a-z])([A-Z])/g, '$1$2');
+          // Ensure value is a string (GHL may not accept null/undefined)
+          const value = formData[key];
+          if (value !== null && value !== undefined) {
+            acc[cleanKey] = String(value);
+          }
+        }
+        return acc;
+      }, {})
+    };
+    
+    // Remove any empty strings that might cause issues (except email/phone which GHL validates)
+    Object.keys(ghlPayload).forEach(key => {
+      if (key !== 'email' && key !== 'phone' && ghlPayload[key] === '') {
+        delete ghlPayload[key];
+      }
+    });
+
+    console.log('=== Sending to GoHighLevel ===');
+    console.log('GHL Webhook URL:', GHL_WEBHOOK_URL);
+    console.log('GHL Webhook URL length:', GHL_WEBHOOK_URL ? GHL_WEBHOOK_URL.length : 0);
+    console.log('Website URL:', websiteUrl);
+    console.log('Normalized URL:', normalizedUrl);
+    console.log('Payload:', JSON.stringify(ghlPayload, null, 2));
+    console.log('Payload size (bytes):', JSON.stringify(ghlPayload).length);
+    console.log('==============================');
+    
+    console.log('🚀 ABOUT TO MAKE POST REQUEST TO GoHighLevel...');
+    console.log('URL:', GHL_WEBHOOK_URL);
+    console.log('Method: POST');
+    console.log('Headers:', JSON.stringify({ 'Content-Type': 'application/json' }));
+    
+    const fetchStartTime = Date.now();
+    console.log('⏱️ Fetch start time:', new Date(fetchStartTime).toISOString());
+
+    const response = await fetch(GHL_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(ghlPayload),
+    });
+    
+    const fetchEndTime = Date.now();
+    console.log('⏱️ Fetch end time:', new Date(fetchEndTime).toISOString());
+    console.log('⏱️ Fetch duration:', fetchEndTime - fetchStartTime, 'ms');
+    console.log('✅ POST REQUEST COMPLETED');
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`GoHighLevel API error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const responseText = await response.text();
+    console.log('GoHighLevel response status:', response.status);
+    console.log('GoHighLevel response headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
+    console.log('GoHighLevel response body:', responseText);
+    
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (e) {
+      // GHL might not return JSON
+      result = { rawResponse: responseText, status: response.status };
+    }
+    
+    console.log('✅ GoHighLevel webhook sent successfully');
+    console.log('Parsed response:', JSON.stringify(result, null, 2));
+    return {
+      success: true,
+      status: response.status,
+      response: result,
+    };
+  } catch (error) {
+    console.error('❌ Error sending to GoHighLevel:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    throw error;
+  }
+}
+
+/**
  * Log form submission (console + structured logging)
  * @param {Object} data - The form submission data
  * @param {Object} headers - Request headers
@@ -478,29 +641,50 @@ exports.handler = async (event, context) => {
         console.log(JSON.stringify(rawBody, null, 2));
         console.log('========================');
 
-        formData = rawBody;
-
         // Formspree sends data in different formats:
         // Simple Webhook: Direct form data in body (e.g., {name: "...", email: "..."})
         // REST Hook: May be wrapped in 'data', 'payload', or 'submission'
         // Check if we need to unwrap the data
-        if (formData.submission && typeof formData.submission === 'object') {
-          console.log('Found submission wrapper, unwrapping...');
-          formData = formData.submission;
-        } else if (formData.data && typeof formData.data === 'object') {
-          console.log('Found data wrapper, unwrapping...');
-          formData = formData.data;
-        } else if (formData.payload && typeof formData.payload === 'object') {
-          console.log('Found payload wrapper, unwrapping...');
-          formData = formData.payload;
+        console.log('=== Checking for data wrapper ===');
+        console.log('rawBody keys:', Object.keys(rawBody));
+        console.log('rawBody type:', typeof rawBody);
+        console.log('Has submission wrapper?', !!(rawBody && rawBody.submission));
+        console.log('Has data wrapper?', !!(rawBody && rawBody.data));
+        console.log('Has payload wrapper?', !!(rawBody && rawBody.payload));
+        
+        formData = rawBody;
+        
+        if (rawBody && rawBody.submission && typeof rawBody.submission === 'object') {
+          console.log('✅ Found submission wrapper, unwrapping...');
+          console.log('Before unwrap keys:', Object.keys(formData));
+          formData = rawBody.submission;
+          console.log('After unwrap keys:', Object.keys(formData));
+          console.log('After unwrap (first 500 chars):', JSON.stringify(formData).substring(0, 500));
+        } else if (rawBody && rawBody.data && typeof rawBody.data === 'object') {
+          console.log('✅ Found data wrapper, unwrapping...');
+          formData = rawBody.data;
+        } else if (rawBody && rawBody.payload && typeof rawBody.payload === 'object') {
+          console.log('✅ Found payload wrapper, unwrapping...');
+          formData = rawBody.payload;
+        } else {
+          console.log('ℹ️ No wrapper found, using rawBody directly');
         }
-        // If neither exists, formData is already the correct object
+        
+        // Ensure formData is defined
+        if (!formData) {
+          console.error('ERROR: formData is undefined after parsing!');
+          formData = rawBody || {};
+        }
 
         // Log parsed form data for debugging
-        console.log('=== Parsed Form Data ===');
-        console.log(JSON.stringify(formData, null, 2));
-        console.log('Form fields:', Object.keys(formData));
-        console.log('========================');
+        console.log('=== Parsed Form Data (Final) ===');
+        console.log('formData type:', typeof formData);
+        console.log('formData is null?', formData === null);
+        console.log('formData is undefined?', formData === undefined);
+        console.log('Form fields:', formData ? Object.keys(formData) : 'N/A');
+        console.log('websiteUrl value:', formData ? (formData.websiteUrl || formData.website || formData.siteUrl || formData._website) : 'N/A');
+        console.log('Full formData:', JSON.stringify(formData, null, 2));
+        console.log('================================');
 
       } catch (parseError) {
         console.error('Error parsing request body:', parseError);
@@ -566,6 +750,44 @@ exports.handler = async (event, context) => {
         // Log but don't fail the webhook if Slack fails
         console.error('Slack notification failed (non-blocking):', slackError);
       }
+
+      // Send to GoHighLevel (only for glenhausgardenroom.com submissions)
+      console.log('🔵 STEP: About to check GoHighLevel integration...');
+      let ghlResult = null;
+      try {
+        const websiteUrl = formData.websiteUrl || formData.website || formData.siteUrl || formData._website;
+        console.log('=== GoHighLevel Integration Check ===');
+        console.log('Website URL from form:', websiteUrl);
+        console.log('Website URL type:', typeof websiteUrl);
+        console.log('All form data keys:', Object.keys(formData));
+        console.log('GOHIGHLEVEL_WEBHOOK_URL configured:', !!process.env.GOHIGHLEVEL_WEBHOOK_URL);
+        if (process.env.GOHIGHLEVEL_WEBHOOK_URL) {
+          console.log('GHL Webhook URL (first 50 chars):', process.env.GOHIGHLEVEL_WEBHOOK_URL.substring(0, 50) + '...');
+          console.log('GHL Webhook URL (full length):', process.env.GOHIGHLEVEL_WEBHOOK_URL.length, 'characters');
+        } else {
+          console.log('⚠️ WARNING: GOHIGHLEVEL_WEBHOOK_URL environment variable is NOT set!');
+        }
+        
+        console.log('🔵 About to call sendToGoHighLevel function...');
+        ghlResult = await sendToGoHighLevel(formData, websiteUrl);
+        console.log('🔵 sendToGoHighLevel returned');
+        console.log('GoHighLevel result:', JSON.stringify(ghlResult, null, 2));
+        console.log('GoHighLevel result type:', typeof ghlResult);
+        console.log('GoHighLevel result was skipped?', ghlResult?.skipped);
+        console.log('=====================================');
+      } catch (ghlError) {
+        // Log but don't fail the webhook if GoHighLevel fails
+        console.error('❌❌❌ GoHighLevel notification FAILED (non-blocking):', ghlError);
+        console.error('GoHighLevel error message:', ghlError.message);
+        console.error('GoHighLevel error name:', ghlError.name);
+        console.error('GoHighLevel error stack:', ghlError.stack);
+        console.error('GoHighLevel error details:', {
+          message: ghlError.message,
+          stack: ghlError.stack,
+          name: ghlError.name
+        });
+      }
+      console.log('🔵 STEP: GoHighLevel integration check completed');
 
       // Send multiple SMS messages:
       // 1. Form contents to mapped number based on websiteUrl
@@ -725,6 +947,7 @@ exports.handler = async (event, context) => {
           message: 'Webhook received and processed',
           receivedAt: new Date().toISOString(),
           slackSent: slackResult && !slackResult.skipped,
+          ghlSent: ghlResult && !ghlResult.skipped,
           businessSmsSent: smsResult1 && !smsResult1.skipped,
           additionalSmsSent: smsResult1b && !smsResult1b.skipped,
           customerSmsSent: smsResult2 && !smsResult2.skipped,

@@ -20,13 +20,34 @@ function normalizeWebsiteUrl(url) {
   if (!url) return '';
   // Remove trailing slash, convert to lowercase, trim
   let normalized = url.toLowerCase().replace(/\/+$/, '').trim();
-  
+
   // If URL doesn't have a protocol, assume https://
   if (normalized && !normalized.match(/^https?:\/\//)) {
     normalized = 'https://' + normalized.replace(/^\/\//, '');
   }
-  
+
   return normalized;
+}
+
+/**
+ * Websites currently permitted to trigger SMS notifications.
+ * Submissions from any other website are still logged/forwarded to
+ * Slack/GoHighLevel as normal, but no SMS is sent.
+ */
+const SMS_ENABLED_WEBSITES = [
+  'https://rbjoinery.com',
+  'https://codapixel.com',
+  'https://codapixel.com/contact',
+  'https://albaexteriors.co.uk',
+  'https://dirtydeedsayrshire.co.uk',
+  'https://cuttingedgelandscapingperth.co.uk',
+  'https://glenhausgardenroom.com',
+  'https://glenhausgardenroom.com/garden-rooms',
+  'https://glenhausgardenroom.com/garden-rooms#contact',
+].map(normalizeWebsiteUrl);
+
+function isSmsEnabledForWebsite(websiteUrl) {
+  return !!websiteUrl && SMS_ENABLED_WEBSITES.includes(normalizeWebsiteUrl(websiteUrl));
 }
 
 /**
@@ -799,9 +820,14 @@ exports.handler = async (event, context) => {
       let smsResult1b = null; // Form contents to additional number
       let smsResult2 = null; // Confirmation to customer
       let smsResult3 = null; // Customer number to client
-      
+
       // Prepare form message once
       const formMessage = formatFormDataMessage(formData);
+
+      // Only send SMS at all for websites on the allowlist
+      const submissionWebsiteUrl = formData.websiteUrl || formData.website || formData.siteUrl || formData._website;
+      const smsEnabled = isSmsEnabledForWebsite(submissionWebsiteUrl);
+      console.log('SMS enabled for website', submissionWebsiteUrl, '?', smsEnabled);
       
       // Store client phone number and customer phone for later use
       let clientPhoneForCustomer = null;
@@ -811,8 +837,8 @@ exports.handler = async (event, context) => {
         // Message 1a: Send form contents to mapped client number based on websiteUrl
         // Try to find websiteUrl in form data, or use a default mapping
         const websiteUrl = formData.websiteUrl || formData.website || formData.siteUrl || formData._website;
-        
-        if (websiteUrl) {
+
+        if (websiteUrl && smsEnabled) {
           const websiteMapping = getPhoneForWebsite(websiteUrl);
           
           if (websiteMapping && websiteMapping.clientNumber) {
@@ -896,9 +922,9 @@ exports.handler = async (event, context) => {
             smsResult3 = { skipped: true, reason: 'No mapping found for websiteUrl' };
           }
         } else {
-          console.log('No websiteUrl in form data, skipping mapped client SMS');
-          smsResult1 = { skipped: true, reason: 'No websiteUrl in form data' };
-          smsResult3 = { skipped: true, reason: 'No websiteUrl in form data' };
+          console.log('SMS not enabled for this website (or no websiteUrl in form data), skipping mapped client SMS:', websiteUrl);
+          smsResult1 = { skipped: true, reason: 'SMS not enabled for this website' };
+          smsResult3 = { skipped: true, reason: 'SMS not enabled for this website' };
         }
       } catch (smsError) {
         console.error('Business SMS (mapped client) failed (non-blocking):', smsError);
@@ -906,33 +932,43 @@ exports.handler = async (event, context) => {
       }
       
       try {
-        // Message 1b: Send form contents to additional number
-        const additionalNumber = '+447792145328';
-        console.log('=== MESSAGE 1b: Form Contents (Additional Number) ===');
-        console.log('To:', additionalNumber);
-        console.log('Message:', formMessage);
-        console.log('==================================');
-        smsResult1b = await sendTwilioSMS(formMessage, additionalNumber);
+        if (smsEnabled) {
+          // Message 1b: Send form contents to additional number
+          const additionalNumber = '+447792145328';
+          console.log('=== MESSAGE 1b: Form Contents (Additional Number) ===');
+          console.log('To:', additionalNumber);
+          console.log('Message:', formMessage);
+          console.log('==================================');
+          smsResult1b = await sendTwilioSMS(formMessage, additionalNumber);
+        } else {
+          console.log('SMS not enabled for this website, skipping additional number SMS');
+          smsResult1b = { skipped: true, reason: 'SMS not enabled for this website' };
+        }
       } catch (smsError) {
         console.error('Business SMS (additional number) failed (non-blocking):', smsError);
         console.error('SMS Error details:', smsError.message, smsError.code);
       }
       
       try {
-        // Message 2: Send confirmation to customer
-        const customerPhone = formatPhoneNumber(getPhoneFromFormData(formData));
-        
-        if (customerPhone) {
-          const confirmationMessage = "Thanks for your message! We've received your contact form submission and will reply as soon as possible - keep on the lookout for a text message or a call.";
-          console.log('=== MESSAGE 2: Customer Confirmation ===');
-          console.log('To:', customerPhone);
-          console.log('Message:', confirmationMessage);
-          console.log('========================================');
-          smsResult2 = await sendTwilioSMS(confirmationMessage, customerPhone);
+        if (!smsEnabled) {
+          console.log('SMS not enabled for this website, skipping customer confirmation SMS');
+          smsResult2 = { skipped: true, reason: 'SMS not enabled for this website' };
         } else {
-          console.log('No customer phone number in form data, skipping confirmation SMS');
-          smsResult2 = { skipped: true, reason: 'No phone number in form data' };
-          smsResult3 = { skipped: true, reason: 'No phone number in form data' };
+          // Message 2: Send confirmation to customer
+          const customerPhone = formatPhoneNumber(getPhoneFromFormData(formData));
+
+          if (customerPhone) {
+            const confirmationMessage = "Thanks for your message! We've received your contact form submission and will reply as soon as possible - keep on the lookout for a text message or a call.";
+            console.log('=== MESSAGE 2: Customer Confirmation ===');
+            console.log('To:', customerPhone);
+            console.log('Message:', confirmationMessage);
+            console.log('========================================');
+            smsResult2 = await sendTwilioSMS(confirmationMessage, customerPhone);
+          } else {
+            console.log('No customer phone number in form data, skipping confirmation SMS');
+            smsResult2 = { skipped: true, reason: 'No phone number in form data' };
+            smsResult3 = { skipped: true, reason: 'No phone number in form data' };
+          }
         }
       } catch (smsError) {
         console.error('Customer confirmation SMS failed (non-blocking):', smsError);

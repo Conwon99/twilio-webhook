@@ -44,6 +44,8 @@ const SMS_ENABLED_WEBSITES = [
   'https://glenhausgardenroom.com',
   'https://glenhausgardenroom.com/garden-rooms',
   'https://glenhausgardenroom.com/garden-rooms#contact',
+  'https://glenviewexteriorcleaning.co.uk',
+  'https://glasgowfencingcontractors.co.uk',
 ].map(normalizeWebsiteUrl);
 
 function isSmsEnabledForWebsite(websiteUrl) {

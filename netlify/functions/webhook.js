@@ -289,6 +289,108 @@ function formatFormDataMessage(formData) {
 }
 
 /**
+ * Look up whether a submitting website has been opted into CRM lead
+ * tracking (LeadTrackerCRM). Independent of getPhoneForWebsite()/
+ * webnumber_map above, which continues to drive SMS routing unchanged
+ * regardless of this lookup's outcome. Never throws — any failure (missing
+ * env vars, network error, no match) simply means "don't record this lead",
+ * so a Supabase problem can never break SMS delivery.
+ * @param {string} websiteUrl
+ * @returns {Promise<Object|null>} the tracked client row, or null
+ */
+async function getTrackedClientForWebsite(websiteUrl) {
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !websiteUrl) {
+    return null;
+  }
+
+  try {
+    const normalized = normalizeWebsiteUrl(websiteUrl);
+    const query = `client_websites?select=client_id,clients(*)&website_url=eq.${encodeURIComponent(normalized)}&limit=1`;
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/${query}`, {
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.error('CRM client lookup failed:', response.status, await response.text());
+      return null;
+    }
+
+    const rows = await response.json();
+    const client = rows[0]?.clients;
+
+    if (!client || !client.lead_tracking_enabled) {
+      return null;
+    }
+
+    return client;
+  } catch (error) {
+    console.error('CRM client lookup error (non-blocking):', error.message);
+    return null;
+  }
+}
+
+/**
+ * Record a lead in LeadTrackerCRM's Supabase database. Only called for
+ * clients that getTrackedClientForWebsite() confirmed are opted in. Never
+ * throws — the webhook must still respond to Formspree even if this fails.
+ * @param {Object} client - the tracked client row from getTrackedClientForWebsite()
+ * @param {Object} formData - the parsed webhook submission
+ */
+async function recordLeadInCRM(client, formData) {
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  try {
+    const websiteUrl = formData.websiteUrl || formData.website || formData.siteUrl || formData._website;
+    const phone = getPhoneFromFormData(formData);
+
+    let name = formData.name;
+    if (!name && (formData.firstName || formData.lastName)) {
+      name = [formData.firstName, formData.lastName].filter(Boolean).join(' ');
+    }
+
+    const leadPayload = {
+      client_id: client.id,
+      name: name || null,
+      email: formData.email || null,
+      phone: phone || null,
+      phone_e164: phone ? formatPhoneNumber(phone) : null,
+      message: formData.message || null,
+      service: formData.service || formData.field || formData.type || null,
+      source_website_url: websiteUrl || null,
+      raw_payload: formData,
+    };
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/leads`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(leadPayload),
+    });
+
+    if (!response.ok) {
+      console.error('CRM lead insert failed:', response.status, await response.text());
+      return;
+    }
+
+    console.log('Lead recorded in CRM for client:', client.business_name);
+  } catch (error) {
+    console.error('CRM lead recording error (non-blocking):', error.message);
+  }
+}
+
+/**
  * Send data to Slack webhook (placeholder implementation)
  * @param {Object} formData - The form submission data
  * @returns {Promise<Object>} Response from Slack
@@ -714,6 +816,19 @@ exports.handler = async (event, context) => {
       console.log('Form data keys:', Object.keys(formData));
       console.log('Website URL from form:', formData.websiteUrl || formData.website || formData.siteUrl || formData._website);
       logSubmission(formData, event.headers);
+
+      // Record in LeadTrackerCRM, but only if this website has been opted
+      // into tracking (see getTrackedClientForWebsite). Every other website
+      // behaves exactly as before — no CRM record is created.
+      try {
+        const websiteUrlForCrm = formData.websiteUrl || formData.website || formData.siteUrl || formData._website;
+        const trackedClient = await getTrackedClientForWebsite(websiteUrlForCrm);
+        if (trackedClient) {
+          await recordLeadInCRM(trackedClient, formData);
+        }
+      } catch (crmError) {
+        console.error('CRM recording failed (non-blocking):', crmError);
+      }
 
       // Store log entry (async, don't block response)
       try {

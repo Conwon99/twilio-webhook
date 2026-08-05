@@ -226,6 +226,18 @@ Logs include:
 | `TWILIO_AUTH_TOKEN` | Twilio Auth Token | No | None (SMS disabled) |
 | `TWILIO_PHONE_NUMBER` | Twilio phone number (sender) | No | None (SMS disabled) |
 | `TWILIO_TO_PHONE` | Recipient phone number (E.164 format) | No | Uses `phone` field from form |
+| `SUPABASE_URL` | Supabase project URL, for LeadTrackerCRM recording | No | None (CRM recording disabled) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key, for LeadTrackerCRM recording | No | None (CRM recording disabled) |
+
+### LeadTrackerCRM integration
+
+If `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set, each incoming
+submission is also checked against LeadTrackerCRM's `client_websites` table.
+If the submitting website has been explicitly opted into tracking there
+(and isn't paused), the lead is recorded permanently for that client to view
+in their dashboard. Websites that haven't been opted in are unaffected —
+this is purely additive and never changes the SMS/Slack/GoHighLevel
+behavior above. See the LeadTrackerCRM repo for onboarding a client.
 
 ### Customizing the Handler
 

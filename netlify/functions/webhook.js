@@ -1023,11 +1023,21 @@ exports.handler = async (event, context) => {
       try {
         // Message 1b: Send form contents to additional number
         const additionalNumber = '+447792145328';
-        console.log('=== MESSAGE 1b: Form Contents (Additional Number) ===');
-        console.log('To:', additionalNumber);
-        console.log('Message:', formMessage);
-        console.log('==================================');
-        smsResult1b = await sendTwilioSMS(formMessage, additionalNumber);
+
+        // Some sites in webnumber_map use this same number as their mapped
+        // clientNumber (e.g. glenhausgardenroom.com, codapixel.com). Message
+        // 1a already sent the identical form contents to that number in
+        // that case, so sending here too would duplicate the text.
+        if (clientPhoneForCustomer && clientPhoneForCustomer.trim() === additionalNumber) {
+          console.log('=== MESSAGE 1b: Skipped (additional number matches mapped client number) ===');
+          smsResult1b = { skipped: true, reason: 'Additional number matches mapped client number for this submission' };
+        } else {
+          console.log('=== MESSAGE 1b: Form Contents (Additional Number) ===');
+          console.log('To:', additionalNumber);
+          console.log('Message:', formMessage);
+          console.log('==================================');
+          smsResult1b = await sendTwilioSMS(formMessage, additionalNumber);
+        }
       } catch (smsError) {
         console.error('Business SMS (additional number) failed (non-blocking):', smsError);
         console.error('SMS Error details:', smsError.message, smsError.code);

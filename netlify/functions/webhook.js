@@ -259,11 +259,6 @@ function formatFormDataMessage(formData) {
     parts.push(`Phone: ${phoneNumber}`);
   }
   
-  // Handle service/type
-  if (formData.service) {
-    parts.push(`Service: ${formData.service}`);
-  }
-  
   // Handle message
   if (formData.message) {
     parts.push(`Message: ${formData.message}`);

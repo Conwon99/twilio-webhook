@@ -12,7 +12,8 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Normalize a website URL for matching (remove trailing slash, lowercase, add https if missing)
+ * Normalize a website URL for matching (remove trailing slash, lowercase, add https if missing,
+ * strip a "www." prefix so www/non-www variants match the same webnumber_map entry)
  * @param {string} url - The website URL
  * @returns {string} Normalized URL
  */
@@ -20,12 +21,15 @@ function normalizeWebsiteUrl(url) {
   if (!url) return '';
   // Remove trailing slash, convert to lowercase, trim
   let normalized = url.toLowerCase().replace(/\/+$/, '').trim();
-  
+
   // If URL doesn't have a protocol, assume https://
   if (normalized && !normalized.match(/^https?:\/\//)) {
     normalized = 'https://' + normalized.replace(/^\/\//, '');
   }
-  
+
+  // Strip a "www." prefix so it doesn't cause a mapping mismatch
+  normalized = normalized.replace(/^(https?:\/\/)www\./, '$1');
+
   return normalized;
 }
 

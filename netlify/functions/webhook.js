@@ -390,42 +390,6 @@ async function recordLeadInCRM(client, formData) {
 }
 
 /**
- * Persist a durable record of this webhook submission (website URL matching,
- * SMS outcomes) to the webhook_logs table in the LeadTrackerCRM Supabase
- * project, so it can be inspected later regardless of Netlify function
- * cold-starts. Never throws — the webhook must still respond even if this
- * fails.
- * @param {Object} logData - fields to record, see webhook_logs schema
- */
-async function recordWebhookLog(logData) {
-  const SUPABASE_URL = process.env.SUPABASE_URL;
-  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return;
-  }
-
-  try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/webhook_logs`, {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
-      body: JSON.stringify(logData),
-    });
-
-    if (!response.ok) {
-      console.error('webhook_logs insert failed:', response.status, await response.text());
-    }
-  } catch (error) {
-    console.error('webhook_logs insert error (non-blocking):', error.message);
-  }
-}
-
-/**
  * Send data to Slack webhook (placeholder implementation)
  * @param {Object} formData - The form submission data
  * @returns {Promise<Object>} Response from Slack
@@ -956,21 +920,15 @@ exports.handler = async (event, context) => {
       // Store client phone number and customer phone for later use
       let clientPhoneForCustomer = null;
       let customerPhoneForClient = null;
-
-      // Hoisted so recordWebhookLog() can see them after the try block below
-      let websiteUrlForLog = null;
-      let websiteMappingForLog = null;
-
+      
       try {
         // Message 1a: Send form contents to mapped client number based on websiteUrl
         // Try to find websiteUrl in form data, or use a default mapping
         const websiteUrl = formData.websiteUrl || formData.website || formData.siteUrl || formData._website;
-        websiteUrlForLog = websiteUrl;
-
+        
         if (websiteUrl) {
           const websiteMapping = getPhoneForWebsite(websiteUrl);
-          websiteMappingForLog = websiteMapping;
-
+          
           if (websiteMapping && websiteMapping.clientNumber) {
             // Format client phone number to E.164 format
             let clientPhone = websiteMapping.clientNumber;
@@ -1092,32 +1050,6 @@ exports.handler = async (event, context) => {
         }
       } catch (smsError) {
         console.error('Customer confirmation SMS failed (non-blocking):', smsError);
-      }
-
-      // Persist a durable record of this submission for later inspection
-      // (see recordWebhookLog doc comment). Non-blocking by design.
-      try {
-        const smsStatus = (result) => {
-          if (!result) return 'not_attempted';
-          if (result.success) return 'sent';
-          if (result.skipped) return `skipped: ${result.reason || result.error || 'unknown'}`;
-          return 'error';
-        };
-
-        await recordWebhookLog({
-          website_url_raw: websiteUrlForLog || null,
-          website_url_normalized: websiteUrlForLog ? normalizeWebsiteUrl(websiteUrlForLog) : null,
-          mapping_found: !!(websiteMappingForLog && websiteMappingForLog.clientNumber),
-          mapped_client_number: websiteMappingForLog ? websiteMappingForLog.clientNumber : null,
-          mapped_twilio_number: websiteMappingForLog ? websiteMappingForLog.twilioNumber : null,
-          client_sms_status: smsStatus(smsResult1),
-          client_sms_error: smsResult1 && smsResult1.error ? String(smsResult1.error) : null,
-          customer_sms_status: smsStatus(smsResult2),
-          customer_phone: customerPhoneForClient || null,
-          form_data: formData,
-        });
-      } catch (logError) {
-        console.error('recordWebhookLog call failed (non-blocking):', logError.message);
       }
 
       // Return success response

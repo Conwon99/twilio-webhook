@@ -903,23 +903,17 @@ exports.handler = async (event, context) => {
       }
       console.log('🔵 STEP: GoHighLevel integration check completed');
 
-      // Send multiple SMS messages:
-      // 1. Form contents to mapped number based on websiteUrl
+      // Send SMS messages:
+      // 1. Form contents to mapped client number based on websiteUrl (one message)
       // 2. Form contents to additional number (+447792145328)
       // 3. Confirmation message to customer's phone
-      // 4. Customer number to client (for easy copying)
       
       let smsResult1 = null; // Form contents to mapped client
       let smsResult1b = null; // Form contents to additional number
       let smsResult2 = null; // Confirmation to customer
-      let smsResult3 = null; // Customer number to client
       
       // Prepare form message once
       const formMessage = formatFormDataMessage(formData);
-      
-      // Store client phone number and customer phone for later use
-      let clientPhoneForCustomer = null;
-      let customerPhoneForClient = null;
       
       try {
         // Message 1a: Send form contents to mapped client number based on websiteUrl
@@ -935,19 +929,6 @@ exports.handler = async (event, context) => {
             if (!clientPhone.startsWith('+')) {
               clientPhone = formatPhoneNumber(clientPhone);
             }
-            // Store for customer confirmation message
-            clientPhoneForCustomer = clientPhone;
-            
-            // Get customer phone number for client
-            const customerPhone = formatPhoneNumber(getPhoneFromFormData(formData));
-            customerPhoneForClient = customerPhone;
-            
-            console.log('=== PHONE NUMBER EXTRACTION ===');
-            console.log('Raw phone from form:', getPhoneFromFormData(formData));
-            console.log('Formatted customer phone:', customerPhone);
-            console.log('customerPhoneForClient set to:', customerPhoneForClient);
-            console.log('================================');
-            
             // Use Twilio number from mapping if provided, otherwise use default
             console.log('=== MESSAGE 1a: Form Contents (Mapped Client) ===');
             console.log('Website URL:', websiteUrl);
@@ -965,54 +946,18 @@ exports.handler = async (event, context) => {
             console.log('Twilio number after processing:', twilioFromNumber);
             console.log('Will use override?', twilioFromNumber ? 'YES' : 'NO - will use default');
             
-            // Append instruction to form message if customer phone is available
-            let messageToClient = formMessage;
-            if (customerPhoneForClient) {
-              messageToClient += "\n\nPlease copy the following number to message or call the person back:";
-              console.log('DEBUG: Appended instruction to message. Customer phone available:', customerPhoneForClient);
-            } else {
-              console.log('DEBUG: No customer phone available, not appending instruction');
-            }
-            
-            console.log('=== DEBUG: Message being sent to client ===');
+            console.log('=== Message being sent to client ===');
             console.log('To:', clientPhone);
-            console.log('Message length:', messageToClient.length);
-            console.log('Message ends with instruction?', messageToClient.includes('Please copy the following number'));
-            console.log('Full message:', messageToClient);
+            console.log('Full message:', formMessage);
             console.log('==================================');
-            smsResult1 = await sendTwilioSMS(messageToClient, clientPhone, twilioFromNumber);
-            
-            // Send customer number to client (for easy copying)
-            console.log('=== MESSAGE 1a-2: Preparing to send customer phone ===');
-            console.log('customerPhoneForClient value:', customerPhoneForClient);
-            console.log('customerPhoneForClient type:', typeof customerPhoneForClient);
-            console.log('customerPhoneForClient truthy?', !!customerPhoneForClient);
-            
-            if (customerPhoneForClient) {
-              // Small delay to ensure messages arrive in order
-              await new Promise(resolve => setTimeout(resolve, 500));
-              
-              console.log('=== MESSAGE 1a-2: Customer Number to Client ===');
-              console.log('To:', clientPhone);
-              console.log('From (Twilio):', twilioFromNumber || 'default');
-              console.log('Message (customer phone):', customerPhoneForClient);
-              console.log('==================================');
-              smsResult3 = await sendTwilioSMS(customerPhoneForClient, clientPhone, twilioFromNumber);
-              console.log('MESSAGE 1a-2 result:', JSON.stringify(smsResult3, null, 2));
-            } else {
-              console.log('ERROR: No customer phone number available to send to client');
-              console.log('customerPhoneForClient was:', customerPhoneForClient);
-              smsResult3 = { skipped: true, reason: 'No customer phone number found' };
-            }
+            smsResult1 = await sendTwilioSMS(formMessage, clientPhone, twilioFromNumber);
           } else {
             console.log('No client number mapped for website:', websiteUrl);
             smsResult1 = { skipped: true, reason: 'No mapping found for websiteUrl' };
-            smsResult3 = { skipped: true, reason: 'No mapping found for websiteUrl' };
           }
         } else {
           console.log('No websiteUrl in form data, skipping mapped client SMS');
           smsResult1 = { skipped: true, reason: 'No websiteUrl in form data' };
-          smsResult3 = { skipped: true, reason: 'No websiteUrl in form data' };
         }
       } catch (smsError) {
         console.error('Business SMS (mapped client) failed (non-blocking):', smsError);
@@ -1046,7 +991,6 @@ exports.handler = async (event, context) => {
         } else {
           console.log('No customer phone number in form data, skipping confirmation SMS');
           smsResult2 = { skipped: true, reason: 'No phone number in form data' };
-          smsResult3 = { skipped: true, reason: 'No phone number in form data' };
         }
       } catch (smsError) {
         console.error('Customer confirmation SMS failed (non-blocking):', smsError);
@@ -1065,7 +1009,6 @@ exports.handler = async (event, context) => {
           businessSmsSent: smsResult1 && !smsResult1.skipped,
           additionalSmsSent: smsResult1b && !smsResult1b.skipped,
           customerSmsSent: smsResult2 && !smsResult2.skipped,
-          customerNumberSent: smsResult3 && !smsResult3.skipped,
         }),
       };
     }

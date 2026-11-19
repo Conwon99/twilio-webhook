@@ -141,6 +141,12 @@ function getPhoneForWebsite(websiteUrl) {
  * @returns {Promise<Object>} Response from Twilio
  */
 async function sendTwilioSMS(message, toPhone, fromPhoneOverride = null) {
+  // Global on/off switch, toggled from LeadTrackerCRM admin. Off by default.
+  if (!(await isSmsEnabled())) {
+    console.log('SMS is switched off in LeadTrackerCRM settings, skipping SMS');
+    return { skipped: true, reason: 'SMS disabled' };
+  }
+
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   
@@ -297,6 +303,49 @@ function formatFormDataMessage(formData) {
  * @param {string} websiteUrl
  * @returns {Promise<Object|null>} the tracked client row, or null
  */
+/**
+ * Reads the global `sms_enabled` flag from LeadTrackerCRM's app_settings
+ * table. Cached briefly per warm function instance. Anything other than an
+ * explicit `true` (missing config, lookup error, missing row) means OFF.
+ */
+let smsFlagCache = { value: false, fetchedAt: 0 };
+const SMS_FLAG_TTL_MS = 30 * 1000;
+
+async function isSmsEnabled() {
+  if (Date.now() - smsFlagCache.fetchedAt < SMS_FLAG_TTL_MS) {
+    return smsFlagCache.value;
+  }
+
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  let enabled = false;
+
+  if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/app_settings?select=value&key=eq.sms_enabled&limit=1`,
+        {
+          headers: {
+            apikey: SUPABASE_SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          },
+        }
+      );
+      if (response.ok) {
+        const rows = await response.json();
+        enabled = rows[0]?.value === true;
+      } else {
+        console.error('SMS setting lookup failed:', response.status, await response.text());
+      }
+    } catch (error) {
+      console.error('SMS setting lookup error (defaulting to off):', error.message);
+    }
+  }
+
+  smsFlagCache = { value: enabled, fetchedAt: Date.now() };
+  return enabled;
+}
+
 async function getTrackedClientForWebsite(websiteUrl) {
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;

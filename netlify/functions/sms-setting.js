@@ -31,6 +31,20 @@ function headers(extra = {}) {
   };
 }
 
+/**
+ * fetch() that retries Supabase's intermittent "JWT issued at future"
+ * (401 PGRST303) — a brief clock skew inside Supabase's gateway, not a bad key.
+ */
+async function supabaseFetch(url, init, attempts = 3) {
+  for (let i = 1; ; i += 1) {
+    const response = await fetch(url, init);
+    if (response.status !== 401 || i >= attempts) return response;
+    const text = await response.clone().text().catch(() => '');
+    if (!text.includes('PGRST303')) return response;
+    await new Promise((r) => setTimeout(r, 400 * i));
+  }
+}
+
 function passwordMatches(given) {
   if (!ADMIN_PASSWORD || !given) return false;
   const a = Buffer.from(String(given));
@@ -39,7 +53,7 @@ function passwordMatches(given) {
 }
 
 async function readSetting() {
-  const res = await fetch(
+  const res = await supabaseFetch(
     `${SUPABASE_URL}/rest/v1/app_settings?select=value&key=eq.sms_enabled&limit=1`,
     { headers: headers() }
   );
@@ -49,7 +63,7 @@ async function readSetting() {
 }
 
 async function writeSetting(enabled) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/app_settings?on_conflict=key`, {
+  const res = await supabaseFetch(`${SUPABASE_URL}/rest/v1/app_settings?on_conflict=key`, {
     method: 'POST',
     headers: headers({
       'Content-Type': 'application/json',

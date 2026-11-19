@@ -308,6 +308,20 @@ function formatFormDataMessage(formData) {
  * table. Cached briefly per warm function instance. Anything other than an
  * explicit `true` (missing config, lookup error, missing row) means OFF.
  */
+/**
+ * fetch() that retries Supabase's intermittent "JWT issued at future"
+ * (401 PGRST303) — a brief clock skew inside Supabase's gateway, not a bad key.
+ */
+async function supabaseFetch(url, init, attempts = 3) {
+  for (let i = 1; ; i += 1) {
+    const response = await fetch(url, init);
+    if (response.status !== 401 || i >= attempts) return response;
+    const text = await response.clone().text().catch(() => '');
+    if (!text.includes('PGRST303')) return response;
+    await new Promise((r) => setTimeout(r, 400 * i));
+  }
+}
+
 let smsFlagCache = { value: false, fetchedAt: 0 };
 const SMS_FLAG_TTL_MS = 30 * 1000;
 
@@ -322,7 +336,7 @@ async function isSmsEnabled() {
 
   if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
     try {
-      const response = await fetch(
+      const response = await supabaseFetch(
         `${SUPABASE_URL}/rest/v1/app_settings?select=value&key=eq.sms_enabled&limit=1`,
         {
           headers: {
@@ -358,7 +372,7 @@ async function getTrackedClientForWebsite(websiteUrl) {
     const normalized = normalizeWebsiteUrl(websiteUrl);
     const query = `client_websites?select=client_id,clients(*)&website_url=eq.${encodeURIComponent(normalized)}&limit=1`;
 
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/${query}`, {
+    const response = await supabaseFetch(`${SUPABASE_URL}/rest/v1/${query}`, {
       headers: {
         apikey: SUPABASE_SERVICE_ROLE_KEY,
         Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
@@ -416,7 +430,7 @@ async function recordLeadInCRM(client, formData) {
       raw_payload: formData,
     };
 
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/leads`, {
+    const response = await supabaseFetch(`${SUPABASE_URL}/rest/v1/leads`, {
       method: 'POST',
       headers: {
         apikey: SUPABASE_SERVICE_ROLE_KEY,

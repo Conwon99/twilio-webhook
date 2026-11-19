@@ -338,6 +338,22 @@
             font-family: 'Courier New', monospace;
             font-size: 0.9em;
         }
+        .sms-card {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+        }
+
+        .sms-sub {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 2px;
+        }
     </style>
 </head>
 <body>
@@ -349,6 +365,17 @@
         <p class="subtitle">Real-time webhook submission logs and testing</p>
 
         <div id="status" class="status info" style="display: none;"></div>
+
+        <div class="sms-card">
+            <div>
+                <strong>SMS notifications</strong>
+                <div id="smsStatusText" class="sms-sub">Loading…</div>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="smsToggle" disabled>
+                <span class="slider"></span>
+            </label>
+        </div>
 
         <div class="endpoint">
             <strong>Webhook Endpoint:</strong><br>
@@ -397,6 +424,58 @@
     </div>
 
     <script>
+        // ---- SMS on/off switch ----
+        const smsToggle = document.getElementById('smsToggle');
+        const smsStatusText = document.getElementById('smsStatusText');
+
+        function renderSms(enabled) {
+            smsToggle.checked = enabled;
+            smsStatusText.textContent = enabled
+                ? 'On: texts are sent to clients and customers'
+                : 'Off: no texts are sent (leads are still recorded)';
+        }
+
+        async function loadSmsSetting() {
+            try {
+                const res = await fetch('/.netlify/functions/sms-setting');
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed to load');
+                renderSms(data.smsEnabled);
+                smsToggle.disabled = false;
+            } catch (err) {
+                smsStatusText.textContent = 'Could not load setting: ' + err.message;
+            }
+        }
+
+        smsToggle.addEventListener('change', async () => {
+            const wanted = smsToggle.checked;
+            let password = sessionStorage.getItem('smsAdminPassword');
+            if (!password) {
+                password = window.prompt('Admin password to change SMS setting:');
+                if (!password) { renderSms(!wanted); return; }
+            }
+            smsToggle.disabled = true;
+            try {
+                const res = await fetch('/.netlify/functions/sms-setting', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+                    body: JSON.stringify({ smsEnabled: wanted }),
+                });
+                const data = await res.json();
+                if (res.status === 401) sessionStorage.removeItem('smsAdminPassword');
+                if (!res.ok) throw new Error(data.error || 'Failed to save');
+                sessionStorage.setItem('smsAdminPassword', password);
+                renderSms(data.smsEnabled);
+            } catch (err) {
+                renderSms(!wanted);
+                smsStatusText.textContent = 'Not changed: ' + err.message;
+            } finally {
+                smsToggle.disabled = false;
+            }
+        });
+
+        loadSmsSetting();
+
         let autoRefreshInterval = null;
         const hostname = window.location.hostname;
         const protocol = window.location.protocol;

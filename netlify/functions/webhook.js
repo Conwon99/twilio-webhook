@@ -424,7 +424,7 @@ async function recordLeadInCRM(client, formData) {
       email: formData.email || null,
       phone: phone || null,
       phone_e164: phone ? formatPhoneNumber(phone) : null,
-      message: formData.message || null,
+      message: formData.message || formData.description || formData.details || formData.enquiry || formData.comments || null,
       service: formData.service || formData.field || formData.type || null,
       source_website_url: websiteUrl || null,
       raw_payload: formData,
